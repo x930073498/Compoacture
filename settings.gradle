@@ -1,0 +1,4 @@
+include ':library'
+includeBuild("../compose-build")
+include ':app'
+rootProject.name = "Compoacture"

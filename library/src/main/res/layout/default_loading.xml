@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_gravity="center"
+    android:layout_height="wrap_content"
+    android:background="@drawable/shape_bg_loading">
+
+    <ProgressBar
+        android:indeterminateDrawable="@drawable/loading_rotation_progress"
+        android:layout_margin="20dp"
+        android:layout_width="25dp"
+        android:layout_height="25dp"
+        />
+</FrameLayout>

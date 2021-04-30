@@ -1,0 +1,66 @@
+import com.x930073498.plugin.Libs
+
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+    id 'kotlin-kapt'
+    id'kotlin-parcelize'
+}
+
+android {
+    compileSdkVersion 30
+    buildToolsVersion "30.0.3"
+    buildFeatures {
+        viewBinding true
+    }
+
+    defaultConfig {
+        applicationId "com.x930073498.compoacture"
+        minSdkVersion 21
+        targetSdkVersion 30
+        versionCode 1
+        versionName "1.0"
+        multiDexEnabled true
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    implementation Libs.ktx_core
+    implementation Libs.appcompat
+    implementation Libs.material
+    implementation Libs.constraintlayout
+    implementation Libs.kotlin_stdlib
+    implementation Libs.kotlin_reflect
+    implementation Libs.mmkv
+    implementation Libs.epoxy
+    kapt Libs.epoxy_compiler
+    implementation Libs.mvrx
+    implementation Libs.glide
+    implementation Libs.drouter
+    implementation Libs.immersionbar_ktx
+    implementation Libs.fragment_ktx
+    implementation Libs.immersionbar_components
+    implementation Libs.immersionbar
+    implementation Libs.multidex
+    implementation Libs.viewmodel_ktx
+    implementation project(":library")
+
+    testImplementation 'junit:junit:4.+'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
+}
