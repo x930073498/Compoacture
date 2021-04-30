@@ -3,6 +3,8 @@ package com.x930073498.compoacture.component
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+typealias UnitAction=Action<Unit>
+
 interface Action<R> : Disposable {
 
     fun action(storeViewModel: IStoreViewModel, scope: StoreViewModelScope):R
@@ -12,7 +14,8 @@ interface Action<R> : Disposable {
     }
 }
 
-data class ActionBoat<R>(val action: Action<R>, val handle: ActionHandle<R>)
+internal data class ActionBoat<R>(val action: Action<R>, val handle: ActionHandle<R>)
+
 class ActionHandle<R> {
     private val completableDeferred = CompletableDeferred<R>()
     private var callback: R.() -> Unit = {}

@@ -472,11 +472,35 @@ fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
 }
 
 
+
 inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
     property: KProperty1<R, T>,
     noinline action: T.(R) -> Unit
 ) where R : IStoreViewModel {
     bindComponentLifecycleProperty(R::class, property, action)
+}
+
+fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
+    valueOwner: R,
+    valueProperty: KProperty1<R, T>,
+    action: T.() -> Unit
+) where R : IStoreViewModel {
+    valueOwner.getPropertyLiveData(valueProperty).observe(environment.componentLifecycleOwner, action)
+}
+
+fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
+    clazz: KClass<R>,
+    valueProperty: KProperty1<R, T>,
+    action: T.() -> Unit
+) where R : IStoreViewModel {
+    get(clazz).getPropertyLiveData(valueProperty).observe(environment.componentLifecycleOwner, action)
+}
+
+inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
+    valueProperty: KProperty1<R, T>,
+    noinline action: T.() -> Unit
+) where R : IStoreViewModel {
+    bindComponentLifecycleProperty(R::class, valueProperty, action)
 }
 
 fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
@@ -529,6 +553,29 @@ fun <T, V, R> StoreViewModelScope.bindViewLifecycleProperty(
         dataBinderHandle.bindData(transform(it), targetProperty.get(), feature, checker, this)
     }
 
+}
+
+fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
+    valueOwner: R,
+    valueProperty: KProperty1<R, T>,
+    action: T.() -> Unit
+) where R : IStoreViewModel {
+    valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner, action)
+}
+
+fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
+    clazz: KClass<R>,
+    valueProperty: KProperty1<R, T>,
+    action: T.() -> Unit
+) where R : IStoreViewModel {
+    get(clazz).getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner, action)
+}
+
+inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleProperty(
+    valueProperty: KProperty1<R, T>,
+    noinline action: T.() -> Unit
+) where R : IStoreViewModel {
+    bindViewLifecycleProperty(R::class, valueProperty, action)
 }
 
 fun <T, V, R> StoreViewModelScope.bindViewLifecycleProperty(

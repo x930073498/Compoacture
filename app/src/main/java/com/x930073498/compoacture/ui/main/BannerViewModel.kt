@@ -6,6 +6,8 @@ import com.x930073498.compoacture.component.*
 import com.x930073498.compoacture.ability.hideLoading
 import com.x930073498.compoacture.ability.onViewModel
 import com.x930073498.compoacture.ability.showLoading
+import com.x930073498.compoacture.utils.toast
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 
 
@@ -22,10 +24,11 @@ class BannerViewModel(application: Application, savedStateHandle: SavedStateHand
 
 
     fun setText() {
-        launch {
+        launch(Dispatchers.IO) {
             showLoading()
             delay(2000)
             hideLoading()
+            toast("完成")
             text = onViewModel(TestViewModel::class){
                 this::getText.invoke()
             }

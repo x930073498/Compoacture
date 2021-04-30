@@ -1,1 +1,8 @@
 # Compoacture
+这是一个mvvm框架，基于jetpack
+
+可通过监听viewModel属性的变化自动更新View
+
+可对viewModel中的对象进行SavedState存储，不用手动去做读取和存入
+
+ 使用方法app模块中可见
