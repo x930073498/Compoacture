@@ -26,7 +26,8 @@ interface ComponentEnvironment : LifecycleOwnerProvider,
     IStoreViewModelFactory,
     ViewModelStoreOwner,
     SavedStateRegistryOwner,
-    ExtraProvider
+    ExtraProvider,
+    CacheStore
 
 private val map = mutableMapOf<Any, ComponentEnvironment>()
 
@@ -41,7 +42,7 @@ internal fun environmentFrom(fragment: Fragment): ComponentEnvironment {
         fragment,
         fragment.arguments
     ).getOrCreate("14784d23-18d2-4bf8-9a81-a1665dce8efc") {
-        object : ComponentEnvironment, DefaultLifecycleObserver {
+        object : ComponentEnvironment, DefaultLifecycleObserver ,CacheStore by DefaultCacheStore(){
             init {
                 invokeOnMain { fragment.lifecycle.addObserver(this) }
                 map[fragment] = this
@@ -88,7 +89,7 @@ internal fun environmentFrom(activity: ComponentActivity): ComponentEnvironment 
     map[activity]?.run { return this }
     val baseViewModel = getBaseViewModel(activity, activity.intent?.extras)
     return baseViewModel.getOrCreate("14784d23-18d2-4bf8-9a81-a1665dce8efc") {
-        object : ComponentEnvironment, DefaultLifecycleObserver {
+        object : ComponentEnvironment, DefaultLifecycleObserver,CacheStore by DefaultCacheStore() {
             init {
                 invokeOnMain { activity.lifecycle.addObserver(this) }
                 map[activity] = this

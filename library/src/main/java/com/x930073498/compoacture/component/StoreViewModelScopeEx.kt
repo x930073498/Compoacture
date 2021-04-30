@@ -1,3 +1,5 @@
+@file:Suppress("UNCHECKED_CAST")
+
 package com.x930073498.compoacture.component
 
 import android.os.Bundle
@@ -17,9 +19,14 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KProperty0
 import kotlin.reflect.KProperty1
 
+
 val StoreViewModelScope.storeViewModel: IStoreViewModel
     get() {
-        return getBaseViewModel(environment, environment.extras).apply {
+        return environment.getCache("d703a756-a5d8-4729-b89f-a6dfaab448d8") ?: getBaseViewModel(
+            environment,
+            environment.extras
+        ).apply {
+            putCache("d703a756-a5d8-4729-b89f-a6dfaab448d8", this)
             this.fromStore {
                 if (!contains("66717253-00fd-439a-bb17-e72452bf690e")) {
                     putCache("66717253-00fd-439a-bb17-e72452bf690e", 1)
@@ -81,14 +88,27 @@ fun <T> StoreViewModelScope.getViewModel(
             environment.factory(this@getViewModel, clazz).apply {
                 storeViewModel.addChild(this)
                 dispatchAttach(this@getViewModel)
-                lifecycleActionLiveData.observe(environment.lifecycleOwner) {
-                    val action = it.action as Action<Any?>
-                    val handle = it.handle as ActionHandle<Any?>
-                    handle.complete(action.action(this, this@getViewModel))
-                }
+                bindViewModelAction(this)
             }
         }
     }
+}
+
+fun <T> StoreViewModelScope.bindViewModelAction(
+    t: T
+) where T : IStoreViewModel {
+    fromViewModel {
+        val key = "ae5f08cb-2cfd-4dc8-9d02-609720fe8bb9"
+        getOrCreate(key) {
+            setKeyRemoveOnDestroy(key)
+            t.lifecycleActionLiveData.observe(environment.lifecycleOwner) {
+                val action = it.action as Action<Any?>
+                val handle = it.handle as ActionHandle<Any?>
+                handle.complete(action.action(t, this@bindViewModelAction))
+            }
+        }
+    }
+
 }
 
 inline fun <reified T> StoreViewModelScope.getViewModel(): T where T : IStoreViewModel {
@@ -472,7 +492,6 @@ fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
 }
 
 
-
 inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
     property: KProperty1<R, T>,
     noinline action: T.(R) -> Unit
@@ -485,7 +504,8 @@ fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
 ) where R : IStoreViewModel {
-    valueOwner.getPropertyLiveData(valueProperty).observe(environment.componentLifecycleOwner, action)
+    valueOwner.getPropertyLiveData(valueProperty)
+        .observe(environment.componentLifecycleOwner, action)
 }
 
 fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
@@ -493,7 +513,8 @@ fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
 ) where R : IStoreViewModel {
-    get(clazz).getPropertyLiveData(valueProperty).observe(environment.componentLifecycleOwner, action)
+    get(clazz).getPropertyLiveData(valueProperty)
+        .observe(environment.componentLifecycleOwner, action)
 }
 
 inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(

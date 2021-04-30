@@ -39,10 +39,10 @@ class DefaultToaster : Toaster {
 
 }
 
-fun toast(msg: CharSequence?, duration: Int = Toast.LENGTH_SHORT, gravity: Int = Gravity.CENTER) {
-    DRouter.build(Toaster::class.java)
-        .setDefaultIfEmpty(DefaultToaster())
-        .getService()
-        .toast(msg, duration, gravity)
-}
+val toaster: Toaster
+    get() {
+        return DRouter.build(Toaster::class.java)
+            .setDefaultIfEmpty(DefaultToaster())
+            .getService()
+    }
 

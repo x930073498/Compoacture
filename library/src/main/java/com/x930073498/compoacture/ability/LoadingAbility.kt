@@ -1,5 +1,7 @@
 package com.x930073498.compoacture.ability
 
+import android.app.Application
+import androidx.lifecycle.SavedStateHandle
 import com.didi.drouter.api.DRouter
 import com.scwang.smart.refresh.layout.SmartRefreshLayout
 import com.x930073498.compoacture.R
@@ -11,6 +13,18 @@ import per.goweii.anylayer.AnyLayer
 import per.goweii.anylayer.ktx.setCancelableOnClickKeyBack
 import per.goweii.anylayer.ktx.setCancelableOnTouchOutside
 import java.lang.ref.WeakReference
+
+private object EmptyLoading : Loading {
+    override fun show(maxTime: Long, cancelable: Boolean) {
+    }
+
+    override fun hide() {
+    }
+
+    override fun dispose() {
+    }
+
+}
 
 class DefaultLoading internal constructor(private val scope: StoreViewModelScope) :
     Loading {
@@ -42,31 +56,26 @@ class DefaultLoading internal constructor(private val scope: StoreViewModelScope
     }
 
     override fun hide() {
-        val provider = scope
-        DialogManager.requestStore(provider)
-            .cancel(tag = provider.fromViewModel { this.storeId })
+        runCatching {
+            val provider = scope
+            DialogManager.requestStore(provider)
+                .cancel(tag = provider.fromViewModel { this.storeId })
+        }
     }
 
 
 }
 
 class LoadingAction(private val maxTime: Long, private val cancelable: Boolean) : Action<Unit> {
-    var ref = WeakReference<StoreViewModelScope>(null)
     override fun action(storeViewModel: IStoreViewModel, scope: StoreViewModelScope) {
-        storeViewModel.putCache("3765edd8-2435-41be-b671-83748053498b",this)
-        ref = WeakReference(scope)
-        scope.loading.show(maxTime, cancelable)
+        val loading = scope.loading
+        loading.show(maxTime, cancelable)
     }
-
-    override fun dispose() {
-        ref.get()?.loading?.hide()
-    }
-
 }
 
 class HideLoadingAction : Action<Unit> {
     override fun action(storeViewModel: IStoreViewModel, scope: StoreViewModelScope) {
-      scope.loading.hide()
+        scope.loading.hide()
     }
 
 }
@@ -95,10 +104,8 @@ fun StoreViewModelScope.hideLoading() {
 var StoreViewModelScope.loading: Loading
     get() {
         return fromViewModel {
-            getOrCreate("a8f37bab-23c3-472c-89e2-bad044bb3a7c") {
-                DRouter.build(Loading::class.java)
-                    .setDefaultIfEmpty(DefaultLoading(this@loading))
-                    .getService(this@loading)
+            getOrCreate<Loading>("a8f37bab-23c3-472c-89e2-bad044bb3a7c") {
+                EmptyLoading
             }
         }
     }
@@ -108,5 +115,12 @@ var StoreViewModelScope.loading: Loading
 
 
 fun StoreViewModelScope.replaceLoading(refresh: SmartRefreshLayout) {
-    loading= SmartRefreshLoading(refresh)
+    loading = SmartRefreshLoading(refresh)
+}
+
+fun StoreViewModelScope.bindLoading(
+    loading: Loading = DRouter.build(Loading::class.java).setDefaultIfEmpty(DefaultLoading(this))
+        .getService(this)
+) {
+    this.loading = loading
 }
