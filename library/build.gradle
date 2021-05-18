@@ -43,8 +43,9 @@ dependencies {
     implementation Libs.ktx_core
     implementation Libs.lifecycle_common_java8
     implementation Libs.appcompat
-    implementation Libs.lifecycle_runtime_ktx
     implementation Libs.viewmodel_ktx
+    implementation Libs.lifecycle_runtime_ktx
+    implementation Libs.lifecycle_livedata_ktx
     implementation Libs.smart_refresh_layout_kernel
     implementation Libs.smart_refresh_header_classics
     implementation Libs.material

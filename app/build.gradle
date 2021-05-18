@@ -58,6 +58,7 @@ dependencies {
     implementation Libs.immersionbar
     implementation Libs.multidex
     implementation Libs.viewmodel_ktx
+    implementation Libs.lifecycle_livedata_ktx
     implementation project(":library")
 
     testImplementation 'junit:junit:4.+'

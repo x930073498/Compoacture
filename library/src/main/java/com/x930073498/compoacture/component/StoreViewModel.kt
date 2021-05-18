@@ -4,12 +4,18 @@ import android.app.Application
 import androidx.annotation.CallSuper
 import androidx.collection.arrayMapOf
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.SavedStateHandle
 import com.didi.drouter.api.DRouter
 import java.io.Closeable
 import java.util.*
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlin.reflect.KProperty0
+import kotlin.reflect.KProperty1
+import kotlin.reflect.jvm.reflect
+
+
 
 
 class DefaultStoreViewModel(savedStateHandle: SavedStateHandle) : IStoreViewModel {
@@ -41,8 +47,9 @@ open class StoreViewModel(
     application: Application,
     savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application),
-    IStoreViewModel {
+    IStoreViewModel{
     private val defaultStoreViewModel = DefaultStoreViewModel(savedStateHandle)
+
 
     @CallSuper
     override fun onCleared() {
@@ -51,6 +58,7 @@ open class StoreViewModel(
         }
         clearCache()
     }
+
 
     final override val storeId: String
         get() = defaultStoreViewModel.storeId

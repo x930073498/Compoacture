@@ -5,17 +5,16 @@ package com.x930073498.compoacture.component
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.OnBackPressedDispatcher
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.SavedStateViewModelFactory
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.*
 import androidx.savedstate.SavedStateRegistryOwner
 import com.x930073498.compoacture.application
-import com.x930073498.compoacture.defaultDataBinderFeature
-import com.x930073498.compoacture.defaultDataBinderHandle
+import com.x930073498.compoacture.databinder.DataBinder
+import com.x930073498.compoacture.databinder.DataChangeListener
+import com.x930073498.compoacture.databinder.DataReverseBinder
 import com.x930073498.compoacture.internal.lifecycleAwareLazy
 import com.x930073498.compoacture.utils.invokeOnMain
 import kotlin.reflect.KClass
+import kotlin.reflect.KMutableProperty1
 import kotlin.reflect.KProperty0
 import kotlin.reflect.KProperty1
 
@@ -56,18 +55,6 @@ internal fun <T> getBaseViewModel(
     return getViewModelProvider(environment, extra)[StoreViewModel::class.java]
 }
 
-internal val StoreViewModelScope.dataBinderHandle: BinderAgent
-    get() {
-        return storeViewModel.getOrCreate("97786091-d712-41ed-abaa-8cdf94982d42") {
-            BinderAgent(defaultDataBinderHandle)
-        }
-    }
-val StoreViewModelScope.dataBinderFeatureChecker: DefaultDataBinderFeatureChecker
-    get() {
-        return storeViewModel.getOrCreate("ed74e6e4-f0e5-4e69-8901-b795624dde73") {
-            DefaultDataBinderFeatureChecker()
-        }
-    }
 
 val StoreViewModelScope.activityStoreViewModelScope: StoreViewModelScope
     get() {
@@ -174,6 +161,13 @@ inline fun <T, reified R, S> StoreViewModelScope.bindViewLifecycle(
     bindViewLifecycle(R::class, property, action)
 }
 
+inline fun <T, reified R, S> StoreViewModelScope.bindViewLifecycle(
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    bindViewLifecycle(R::class, property, *binders)
+}
+
 fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
     clazz: KClass<R>,
     property: KProperty1<R, T>,
@@ -187,6 +181,26 @@ fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
 }
 
 fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
+    clazz: KClass<R>,
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    for (binder in binders) {
+        withViewModel(clazz) {
+            val liveData: LiveData<S> = property.invoke(this)
+            if (liveData is MutableLiveData<S> && binder is DataReverseBinder<S>) {
+                binder.register(DataChangeListener {
+                    liveData.postValue(it)
+                })
+            }
+            liveData.observe(environment.lifecycleOwner) {
+                binder.bind(it)
+            }
+        }
+    }
+}
+
+fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
     value: R,
     property: KProperty1<R, T>,
     action: S.(R) -> Unit
@@ -194,6 +208,27 @@ fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
     with(value) {
         property.invoke(this).observe(environment.lifecycleOwner) {
             action(it, this)
+        }
+    }
+}
+
+fun <T, R, S> StoreViewModelScope.bindViewLifecycle(
+    value: R,
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    with(value) {
+        val livedata: LiveData<S> = property.invoke(this)
+        binders.forEach { binder ->
+            if (binder is DataReverseBinder<S> && livedata is MutableLiveData<S>) {
+                binder.register(DataChangeListener {
+                    livedata.postValue(it)
+                })
+            }
+            livedata.observe(environment.lifecycleOwner) {
+                binder.bind(it)
+            }
+
         }
     }
 }
@@ -207,12 +242,47 @@ fun <T, S> StoreViewModelScope.bindViewLifecycle(
     }
 }
 
+fun <T, S> StoreViewModelScope.bindViewLifecycle(
+    property: KProperty0<T>,
+    vararg binders: DataBinder<S>
+) where  T : LiveData<S> {
+    val liveData: LiveData<S> = property.get()
+    binders.forEach { binder ->
+        if (binder is DataReverseBinder<S> && liveData is MutableLiveData<S>) {
+            binder.register(DataChangeListener {
+                liveData.postValue(it)
+            })
+        }
+        property.invoke().observe(environment.lifecycleOwner) {
+            binder.bind(it)
+        }
+
+    }
+}
+
 
 fun <T, S> StoreViewModelScope.bindViewLifecycle(
     liveData: T,
     action: S.() -> Unit
 ) where T : LiveData<S> {
     liveData.observe(environment.lifecycleOwner, action)
+}
+
+fun <T, S> StoreViewModelScope.bindViewLifecycle(
+    liveData: T,
+    vararg binders: DataBinder<S>
+) where T : LiveData<S> {
+    val currentLiveData: LiveData<S> = liveData
+    binders.forEach { binder ->
+        if (binder is DataReverseBinder<S> && currentLiveData is MutableLiveData<S>) {
+            binder.register(DataChangeListener {
+                currentLiveData.postValue(it)
+            })
+        }
+        liveData.observe(environment.lifecycleOwner) {
+            binder.bind(it)
+        }
+    }
 }
 
 
@@ -223,11 +293,35 @@ fun <T, S> StoreViewModelScope.bindComponentLifecycle(
     liveData.observe(environment.componentLifecycleOwner, action)
 }
 
+fun <T, S> StoreViewModelScope.bindComponentLifecycle(
+    liveData: T,
+    vararg binders: DataBinder<S>
+) where T : LiveData<S> {
+    val currentLiveData: LiveData<S> = liveData
+    binders.forEach { binder ->
+        if (binder is DataReverseBinder<S> && currentLiveData is MutableLiveData<S>) {
+            binder.register(DataChangeListener {
+                currentLiveData.postValue(it)
+            })
+        }
+        liveData.observe(environment.componentLifecycleOwner) {
+            binder.bind(it)
+        }
+    }
+}
+
 inline fun <T, reified R, S> StoreViewModelScope.bindComponentLifecycle(
     property: KProperty1<R, T>,
     noinline action: S.(R) -> Unit
 ) where R : IStoreViewModel, T : LiveData<S> {
     bindComponentLifecycle(R::class, property, action)
+}
+
+inline fun <T, reified R, S> StoreViewModelScope.bindComponentLifecycle(
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    bindComponentLifecycle(R::class, property, *binders)
 }
 
 fun <T, R, S> StoreViewModelScope.bindComponentLifecycle(
@@ -238,6 +332,26 @@ fun <T, R, S> StoreViewModelScope.bindComponentLifecycle(
     withViewModel(clazz) {
         property.invoke(this).observe(environment.componentLifecycleOwner) {
             action(it, this@withViewModel)
+        }
+    }
+}
+
+fun <T, R, S> StoreViewModelScope.bindComponentLifecycle(
+    clazz: KClass<R>,
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    binders.forEach { binder ->
+        withViewModel(clazz) {
+            val liveData: LiveData<S> = property.get(this)
+            if (binder is DataReverseBinder<S> && liveData is MutableLiveData<S>) {
+                binder.register(DataChangeListener {
+                    liveData.postValue(it)
+                })
+            }
+            property.invoke(this).observe(environment.componentLifecycleOwner) {
+                binder.bind(it)
+            }
         }
     }
 }
@@ -254,6 +368,26 @@ fun <T, R, S> StoreViewModelScope.bindComponentLifecycle(
     }
 }
 
+fun <T, R, S> StoreViewModelScope.bindComponentLifecycle(
+    value: R,
+    property: KProperty1<R, T>,
+    vararg binders: DataBinder<S>
+) where R : IStoreViewModel, T : LiveData<S> {
+    for (binder in binders) {
+        with(value) {
+            val liveData: LiveData<S> = property.get(this)
+            if (binder is DataReverseBinder<S> && liveData is MutableLiveData<S>) {
+                binder.register(DataChangeListener {
+                    liveData.postValue(it)
+                })
+            }
+            liveData.observe(environment.componentLifecycleOwner) {
+                binder.bind(it)
+            }
+        }
+    }
+}
+
 fun <T, S> StoreViewModelScope.bindComponentLifecycle(
     property: KProperty0<T>,
     action: S.() -> Unit
@@ -263,223 +397,33 @@ fun <T, S> StoreViewModelScope.bindComponentLifecycle(
     }
 }
 
-
-fun <T, V, R, S> StoreViewModelScope.bindViewLifecycle(
-    clazz: KClass<R>,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val viewModel = get(clazz)
-    val value = valueProperty.get(viewModel)
-    value.observe(environment.lifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, R, S> StoreViewModelScope.bindViewLifecycle(
-    value: R,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val liveData = valueProperty.get(value)
-    liveData.observe(environment.lifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, R, S> StoreViewModelScope.bindViewLifecycle(
-    value: R,
-    valueProperty: KProperty1<R, T>,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val liveData = valueProperty.get(value)
-    liveData.observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindViewLifecycle(
-    valueProperty: KProperty0<T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
+fun <T, S> StoreViewModelScope.bindComponentLifecycle(
+    property: KProperty0<T>,
+    vararg binders: DataBinder<S>
 ) where T : LiveData<S> {
-    val value = valueProperty.get()
-    value.observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), targetProperty.get(), feature, checker, this)
+    val liveData: LiveData<S> = property.get()
+    for (binder in binders) {
+        if (binder is DataReverseBinder<S> && liveData is MutableLiveData<S>) {
+            binder.register(DataChangeListener {
+                liveData.postValue(it)
+            })
+        }
+        liveData.observe(environment.componentLifecycleOwner) {
+            binder.bind(it)
+        }
     }
+
 }
 
-fun <T, V, S> StoreViewModelScope.bindViewLifecycle(
-    valueProperty: KProperty0<T>,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where T : LiveData<S> {
-    val value = valueProperty.get()
-    value.observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindViewLifecycle(
-    value: T,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where T : LiveData<S> {
-    value.observe(environment.lifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindViewLifecycle(
-    value: T,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where T : LiveData<S> {
-    value.observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-inline fun <T, V, reified R, S> StoreViewModelScope.bindViewLifecycle(
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    noinline transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    bindViewLifecycle(R::class, valueProperty, targetProperty, feature, checker, transform)
-}
-
-
-fun <T, V, R, S> StoreViewModelScope.bindComponentLifecycle(
-    clazz: KClass<R>,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val viewModel = get(clazz)
-    val value = valueProperty.get(viewModel)
-    value.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, R, S> StoreViewModelScope.bindComponentLifecycle(
-    value: R,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val liveData = valueProperty.get(value)
-    liveData.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, R, S> StoreViewModelScope.bindComponentLifecycle(
-    value: R,
-    valueProperty: KProperty1<R, T>,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    val liveData = valueProperty.get(value)
-    liveData.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindComponentLifecycle(
-    valueProperty: KProperty0<T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where  T : LiveData<S> {
-    val value = valueProperty.get()
-    value.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindComponentLifecycle(
-    valueProperty: KProperty0<T>,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where  T : LiveData<S> {
-    val value = valueProperty.get()
-    value.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindComponentLifecycle(
-    value: T,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where  T : LiveData<S> {
-    value.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.setValue(transform(it), targetProperty, feature, checker, this)
-    }
-}
-
-fun <T, V, S> StoreViewModelScope.bindComponentLifecycle(
-    value: T,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((S) -> Any?) = { it }
-) where  T : LiveData<S> {
-    value.observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-inline fun <T, V, reified R, S> StoreViewModelScope.bindComponentLifecycle(
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    noinline transform: ((S) -> Any?) = { it }
-) where R : IStoreViewModel, T : LiveData<S> {
-    bindComponentLifecycle(R::class, valueProperty, targetProperty, feature, checker, transform)
-}
-
-
-inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleProperty(
+inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     property: KProperty1<R, T>,
     noinline action: T.(R) -> Unit = {}
 ) where R : IStoreViewModel {
-    bindViewLifecycleProperty(R::class, property, action)
+    bindViewLifecycleViewModelProperty(R::class, property, action)
 }
 
-fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
+
+fun <T, R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     clazz: KClass<R>,
     property: KProperty1<R, T>,
     action: T.(R) -> Unit = {}
@@ -492,14 +436,14 @@ fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
 }
 
 
-inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
+inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
     property: KProperty1<R, T>,
     noinline action: T.(R) -> Unit
 ) where R : IStoreViewModel {
-    bindComponentLifecycleProperty(R::class, property, action)
+    bindComponentLifecycleViewModelProperty(R::class, property, action)
 }
 
-fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
     valueOwner: R,
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
@@ -508,7 +452,26 @@ fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
         .observe(environment.componentLifecycleOwner, action)
 }
 
-fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
+    valueOwner: R,
+    valueProperty: KProperty1<R, T>,
+    vararg binders: DataBinder<T>
+) where R : IStoreViewModel {
+    binders.forEach { binder ->
+        if (valueProperty is KMutableProperty1 && binder is DataReverseBinder) {
+            binder.register(DataChangeListener {
+                valueProperty.set(valueOwner, it)
+            })
+        }
+        valueOwner.getPropertyLiveData(valueProperty)
+            .observe(environment.componentLifecycleOwner) {
+                binder.bind(it)
+            }
+    }
+
+}
+
+fun <T, R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
     clazz: KClass<R>,
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
@@ -517,14 +480,33 @@ fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
         .observe(environment.componentLifecycleOwner, action)
 }
 
-inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
+    clazz: KClass<R>,
+    valueProperty: KProperty1<R, T>,
+    vararg binders: DataBinder<T>
+) where R : IStoreViewModel {
+    binders.forEach { binder ->
+        val valueOwner = get(clazz)
+        if (valueProperty is KMutableProperty1 && binder is DataReverseBinder) {
+            binder.register(DataChangeListener {
+                valueProperty.set(valueOwner, it)
+            })
+        }
+        valueOwner.getPropertyLiveData(valueProperty)
+            .observe(environment.componentLifecycleOwner) {
+                binder.bind(it)
+            }
+    }
+}
+
+inline fun <T, reified R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
     valueProperty: KProperty1<R, T>,
     noinline action: T.() -> Unit
 ) where R : IStoreViewModel {
-    bindComponentLifecycleProperty(R::class, valueProperty, action)
+    bindComponentLifecycleViewModelProperty(R::class, valueProperty, action)
 }
 
-fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindComponentLifecycleViewModelProperty(
     clazz: KClass<R>,
     property: KProperty1<R, T>,
     action: T.(R) -> Unit
@@ -537,46 +519,7 @@ fun <T, R> StoreViewModelScope.bindComponentLifecycleProperty(
 }
 
 
-fun <T, V, R> StoreViewModelScope.bindViewLifecycleProperty(
-    clazz: KClass<R>,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((T) -> Any?) = { it }
-) where R : IStoreViewModel {
-    val viewModel = get(clazz)
-    viewModel.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), targetProperty.get(), feature, checker, this)
-    }
-}
-
-
-inline fun <T, V, reified R> StoreViewModelScope.bindViewLifecycleProperty(
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    noinline transform: ((T) -> Any?) = { it }
-) where R : IStoreViewModel {
-    bindViewLifecycleProperty(R::class, valueProperty, targetProperty, feature, checker, transform)
-}
-
-fun <T, V, R> StoreViewModelScope.bindViewLifecycleProperty(
-    valueOwner: R,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((T) -> Any?) = { it }
-) where R : IStoreViewModel {
-    valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), targetProperty.get(), feature, checker, this)
-    }
-
-}
-
-fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     valueOwner: R,
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
@@ -584,7 +527,24 @@ fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
     valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner, action)
 }
 
-fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
+    valueOwner: R,
+    valueProperty: KProperty1<R, T>,
+    vararg binders: DataBinder<T>
+) where R : IStoreViewModel {
+    binders.forEach { binder ->
+        if (valueProperty is KMutableProperty1 && binder is DataReverseBinder) {
+            binder.register(DataChangeListener {
+                valueProperty.set(valueOwner, it)
+            })
+        }
+        valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner) {
+            binder.bind(it)
+        }
+    }
+}
+
+fun <T, R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     clazz: KClass<R>,
     valueProperty: KProperty1<R, T>,
     action: T.() -> Unit
@@ -592,56 +552,37 @@ fun <T, R> StoreViewModelScope.bindViewLifecycleProperty(
     get(clazz).getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner, action)
 }
 
-inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleProperty(
+fun <T, R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
+    clazz: KClass<R>,
+    valueProperty: KProperty1<R, T>,
+    vararg binders: DataBinder<T>
+) where R : IStoreViewModel {
+    binders.forEach { binder ->
+        val valueOwner = get(clazz)
+        if (valueProperty is KMutableProperty1 && binder is DataReverseBinder) {
+            binder.register(DataChangeListener {
+                valueProperty.set(valueOwner, it)
+            })
+        }
+        valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner) {
+            binder.bind(it)
+        }
+
+    }
+}
+
+inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     valueProperty: KProperty1<R, T>,
     noinline action: T.() -> Unit
 ) where R : IStoreViewModel {
-    bindViewLifecycleProperty(R::class, valueProperty, action)
+    bindViewLifecycleViewModelProperty(R::class, valueProperty, action)
 }
 
-fun <T, V, R> StoreViewModelScope.bindViewLifecycleProperty(
-    valueOwner: R,
+inline fun <T, reified R> StoreViewModelScope.bindViewLifecycleViewModelProperty(
     valueProperty: KProperty1<R, T>,
-    target: V,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((T) -> Any?) = { it }
+    vararg binders: DataBinder<T>
 ) where R : IStoreViewModel {
-    valueOwner.getPropertyLiveData(valueProperty).observe(environment.lifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), target, feature, checker, this)
-    }
-}
-
-
-fun <T, V, R> StoreViewModelScope.bindComponentLifecycleProperty(
-    clazz: KClass<R>,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: ((T) -> Any?) = { it }
-) where R : IStoreViewModel {
-    val viewModel = get(clazz)
-    viewModel.getPropertyLiveData(valueProperty).observe(environment.componentLifecycleOwner) {
-        dataBinderHandle.bindData(transform(it), targetProperty.get(), feature, checker, this)
-    }
-}
-
-inline fun <T, V, reified R> StoreViewModelScope.bindComponentLifecycleProperty(
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<V>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    noinline transform: ((T) -> Any?) = { it }
-) where R : IStoreViewModel {
-    bindComponentLifecycleProperty(
-        R::class,
-        valueProperty,
-        targetProperty,
-        feature,
-        checker,
-        transform
-    )
+    bindViewLifecycleViewModelProperty(R::class, valueProperty, *binders)
 }
 
 
@@ -669,118 +610,6 @@ inline fun <reified T> StoreViewModelScope.storeViewModel(): Lazy<T> where T : I
 inline fun <reified T> StoreViewModelScope.activityStoreViewModel(): Lazy<T> where T : IStoreViewModel =
     activityStoreViewModel(T::class)
 
-
-fun <V : Any, T : Any> StoreViewModelScope.addDataBinder(
-    valueType: KClass<V>,
-    targetType: KClass<T>,
-    binder: DataBinder<V, T>
-) {
-    dataBinderHandle.addBinder(valueType, targetType, binder)
-}
-
-inline fun <reified T : Any, reified V : Any> StoreViewModelScope.addDataBinder(binder: DataBinder<T, V>) {
-    addDataBinder(T::class, V::class, binder)
-}
-
-fun StoreViewModelScope.resetDataBinder() {
-    dataBinderHandle.reset()
-}
-
-fun <T : DataBinder<*, *>> StoreViewModelScope.setBinderFeature(
-    binderClass: KClass<T>,
-    feature: DataBinder.Feature
-) {
-    dataBinderFeatureChecker.setFeature(binderClass, feature)
-}
-
-fun <T : DataBinder<*, *>> StoreViewModelScope.setBinderEnable(
-    binderClass: KClass<T>,
-    enable: Boolean
-) {
-    dataBinderFeatureChecker.setBinderEnable(binderClass, enable)
-}
-
-fun StoreViewModelScope.setFeatureEnbale(
-    feature: DataBinder.Feature,
-    enable: Boolean
-) {
-    dataBinderFeatureChecker.setFeatureEnable(feature, enable)
-}
-
-fun <T> StoreViewModelScope.setData(
-    value: T,
-    target: Any?,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: (T) -> Any? = { it }
-) {
-    dataBinderHandle.bindData(transform(value), target, feature, checker, this)
-}
-
-fun <T> StoreViewModelScope.setData(
-    value: T,
-    targetProperty: KProperty0<*>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: (T) -> Any? = { it }
-) {
-    dataBinderHandle.bindData(transform(value), targetProperty.get(), feature, checker, this)
-}
-
-fun <T, R : IStoreViewModel> StoreViewModelScope.setData(
-    valueOwner: R,
-    property: KProperty1<R, T>,
-    target: Any?,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: (T) -> Any? = { it }
-) {
-    dataBinderHandle.bindData(transform(property.get(valueOwner)), target, feature, checker, this)
-}
-
-fun <T, R : IStoreViewModel> StoreViewModelScope.setData(
-    clazz: KClass<R>,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<*>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: (T) -> Any? = { it }
-) {
-    dataBinderHandle.setValue(
-        transform(valueProperty.get(get(clazz))),
-        targetProperty,
-        feature,
-        checker,
-        this
-    )
-}
-
-inline fun <T, reified R : IStoreViewModel> StoreViewModelScope.setData(
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<*>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    noinline transform: (T) -> Any? = { it }
-) {
-    setData(R::class, valueProperty, targetProperty, feature, checker, transform)
-}
-
-fun <T, R : IStoreViewModel> StoreViewModelScope.setData(
-    valueOwner: R,
-    valueProperty: KProperty1<R, T>,
-    targetProperty: KProperty0<*>,
-    feature: DataBinder.Feature = defaultDataBinderFeature,
-    checker: DataBinderFeatureChecker = dataBinderFeatureChecker,
-    transform: (T) -> Any? = { it }
-) {
-    dataBinderHandle.setValue(
-        transform(valueProperty.get(valueOwner)),
-        targetProperty,
-        feature,
-        checker,
-        this
-    )
-}
 
 fun StoreViewModelScope.doOnBackPressedCallback(
     enable: Boolean,

@@ -3,17 +3,21 @@
 package com.x930073498.compoacture.component
 
 import androidx.lifecycle.*
-import com.x930073498.compoacture.internal.ObservableLiveData
-import com.x930073498.compoacture.utils.invokeOnMain
 import com.x930073498.compoacture.ability.storeViewModelScope
+import com.x930073498.compoacture.internal.ObservableLiveData
+import com.x930073498.compoacture.isDebug
+import com.x930073498.compoacture.utils.invokeOnMain
 import kotlinx.coroutines.*
+import java.lang.IllegalStateException
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.properties.ReadOnlyProperty
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 import kotlin.reflect.KProperty0
 import kotlin.reflect.KProperty1
+import kotlin.reflect.jvm.isAccessible
 
 
 interface IStoreViewModel : StoreViewModelLifecycle {
@@ -38,11 +42,11 @@ fun IStoreViewModel.clearCache() {
 internal fun IStoreViewModel.dispatchAttach(scope: StoreViewModelScope) {
     invokeOnMain {
         onAttach(scope)
-        scope.environment.lifecycleOwner.lifecycle.addObserver(getOrCreate("33687f17-2eda-4e3f-80ad-c6ef44e18ded"){
-           object :DefaultLifecycleObserver{
-               override fun onDestroy(owner: LifecycleOwner) {
-                   clearFlagKeyOnDestroy()
-               }
+        scope.environment.lifecycleOwner.lifecycle.addObserver(getOrCreate("33687f17-2eda-4e3f-80ad-c6ef44e18ded") {
+            object : DefaultLifecycleObserver {
+                override fun onDestroy(owner: LifecycleOwner) {
+                    clearFlagKeyOnDestroy()
+                }
             }
         })
     }
@@ -114,6 +118,14 @@ internal fun IStoreViewModel.addChild(viewModel: IStoreViewModel) {
     _children.add(viewModel)
 }
 
+fun <T : IStoreViewModel> T.currentTypeInstance(): CurrentViewModelTypeInstance<T> {
+    return this as? CurrentViewModelTypeInstance<T> ?: getOrCreate("2a354d24-8efa-4974-876b-24b9bc697da3") {
+        object : CurrentViewModelTypeInstance<T> {
+            override val currentInstance: T
+                get() = this@currentTypeInstance
+        }
+    }
+}
 
 fun <T> IStoreViewModel.fromStore(action: SavedStateStore.() -> T): T {
     return action(savedStateStore)
@@ -179,20 +191,36 @@ internal val IStoreViewModel.lifecycleActionLiveData: MutableLiveData<ActionBoat
         }
     }
 
-fun<R> IStoreViewModel.pushAction(action: Action<R>): ActionHandle<R> {
+fun <R> IStoreViewModel.pushAction(action: Action<R>): ActionHandle<R> {
     val handle = ActionHandle<R>()
     val boat = ActionBoat(action, handle)
     invokeOnMain { lifecycleActionLiveData.value = boat }
     return handle
 }
 
-internal fun <T> IStoreViewModel.getPropertyLiveData(property: KProperty<T>): MutableLiveData<T> {
+fun <T : IStoreViewModel, R> T.asLiveData(property: KProperty1<T, R>): LiveData<R> {
+    return getPropertyLiveData(property)
+}
+
+internal fun <T, V> V.getPropertyLiveData(property: KProperty<T>): MutableLiveData<T> where V : IStoreViewModel {
     return getOrCreate(getPropertyLiveDataKey(property.name)) {
         if (property is KProperty0<*>) {
             property as KProperty0<T>
+            if (isDebug) {
+                property.isAccessible = true
+                if (property.getDelegate() !is StoreViewModelReadWriteProperty<*, *>) {
+                    throw StorePropertyException(property, this@getPropertyLiveData)
+                }
+            }
             return@getOrCreate MutableLiveData(property.get())
         } else if (property is KProperty1<*, *>) {
             property as KProperty1<IStoreViewModel, T>
+            if (isDebug) {
+                property.isAccessible = true
+                if (property.getDelegate(this@getPropertyLiveData) !is StoreViewModelReadWriteProperty<*, *>) {
+                    throw StorePropertyException(property, this@getPropertyLiveData)
+                }
+            }
             return@getOrCreate MutableLiveData(property.get(this@getPropertyLiveData))
         }
         MutableLiveData()
@@ -206,7 +234,7 @@ private fun IStoreViewModel.setPropertyChange(property: KProperty<*>, value: Any
 }
 
 fun <T> IStoreViewModel.saveStateProperty(defaultValue: () -> T): ReadWriteProperty<IStoreViewModel, T> {
-    return object : ReadWriteProperty<IStoreViewModel, T> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, T> {
         override fun setValue(thisRef: IStoreViewModel, property: KProperty<*>, value: T) {
             fromStore {
                 saveState(getPropertyKey(property), value)
@@ -224,7 +252,7 @@ fun <T> IStoreViewModel.saveStateProperty(defaultValue: () -> T): ReadWritePrope
 
 fun <T> IStoreViewModel.saveStateProperty(defaultValue: T) = saveStateProperty { defaultValue }
 fun <T> IStoreViewModel.saveStateProperty(): ReadWriteProperty<IStoreViewModel, T?> {
-    return object : ReadWriteProperty<IStoreViewModel, T?> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, T?> {
         override fun setValue(thisRef: IStoreViewModel, property: KProperty<*>, value: T?) {
             fromStore {
                 saveState(getPropertyKey(property), value)
@@ -240,7 +268,7 @@ fun <T> IStoreViewModel.saveStateProperty(): ReadWriteProperty<IStoreViewModel, 
 
 
 fun <T> IStoreViewModel.saveStateLiveDataProperty(defaultValue: () -> T?): ReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
-    return object : ReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
         override fun setValue(
             thisRef: IStoreViewModel,
             property: KProperty<*>,
@@ -286,7 +314,7 @@ fun <T> IStoreViewModel.saveStateListLiveDataProperty(): ReadWriteProperty<IStor
     saveStateLiveDataProperty()
 
 fun <T> IStoreViewModel.property(defaultValue: () -> T): ReadWriteProperty<IStoreViewModel, T> {
-    return object : ReadWriteProperty<IStoreViewModel, T> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, T> {
         override fun setValue(thisRef: IStoreViewModel, property: KProperty<*>, value: T) {
             fromStore {
                 putCache(getPropertyKey(property), value)
@@ -311,7 +339,7 @@ fun <T> IStoreViewModel.liveDataProperty(defaultValue: T? = null) =
     liveDataProperty { defaultValue }
 
 fun <T> IStoreViewModel.liveDataProperty(defaultValue: () -> T?): ReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
-    return object : ReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, MutableLiveData<T>> {
         override fun setValue(
             thisRef: IStoreViewModel,
             property: KProperty<*>,
@@ -345,7 +373,7 @@ fun <T> IStoreViewModel.listLiveDataProperty(): ReadWriteProperty<IStoreViewMode
     liveDataProperty()
 
 fun <T> IStoreViewModel.property(): ReadWriteProperty<IStoreViewModel, T?> {
-    return object : ReadWriteProperty<IStoreViewModel, T?> {
+    return object : StoreViewModelReadWriteProperty<IStoreViewModel, T?> {
         override fun setValue(thisRef: IStoreViewModel, property: KProperty<*>, value: T?) {
             fromStore {
                 putCache(getPropertyKey(property), value)
@@ -359,8 +387,11 @@ fun <T> IStoreViewModel.property(): ReadWriteProperty<IStoreViewModel, T?> {
     }
 }
 
+internal interface StoreViewModelReadWriteProperty<T, V> : ReadWriteProperty<T, V>
+internal interface StoreViewModelReadOnlyProperty<T, V> : ReadOnlyProperty<T, V>
+internal class StorePropertyException(property: KProperty<*>, viewModel: IStoreViewModel) :
+    IllegalStateException("当前属性{${viewModel::class.qualifiedName}.${property.name}}不是StoreViewModelReadWriteProperty类型代理，请使用IStoreViewModel提供的扩展代理该属性")
 
-///...
 
 
 

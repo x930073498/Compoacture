@@ -17,12 +17,14 @@ class StartUp : Initializer<Unit> {
 
     companion object {
         private var init = false
+        @Synchronized
         fun init(context: Context) {
             if (init) return
             MMKV.initialize(context)
-            if (context is Application) {
-                context.registerActivityLifecycleCallbacks(ActivityLifecycleCallbacks)
-                application = context
+            val applicationContext=context.applicationContext
+            if (applicationContext is Application) {
+                applicationContext.registerActivityLifecycleCallbacks(ActivityLifecycleCallbacks)
+                application = applicationContext
                 isDebug = context.isDebug
             }
             init = true
